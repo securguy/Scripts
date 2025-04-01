@@ -1,5 +1,69 @@
 # Мои крипты для Linux
 
+## Рандомизация LAN IP и LAN-MAC-адресов на роутере с OpenWRT
+
+1. Подключиться к роутеру через SSH
+
+2. Создать файл identifiers_randomization:
+
+```bash
+#!/bin/sh /etc/rc.common
+
+START=17
+
+start() {
+  #MAC-ADDRESSES RANDOMIZATION
+  NEWMAC1=$(printf "%02x" $(( $(hexdump -n1 -e'/1 "0x%02x"' /dev/urandom) & ~1 | 2)) && hexdump -n5 -e'/1 ":%02x"' /dev/urandom) #Get new MAC-address for br-lan
+  NEWMAC2=$(printf "%02x" $(( $(hexdump -n1 -e'/1 "0x%02x"' /dev/urandom) & ~1 | 2)) && hexdump -n5 -e'/1 ":%02x"' /dev/urandom) #Get new MAC-address for lan
+  NEWMAC3=$(printf "%02x" $(( $(hexdump -n1 -e'/1 "0x%02x"' /dev/urandom) & ~1 | 2)) && hexdump -n5 -e'/1 ":%02x"' /dev/urandom) #Get new MAC-address for Wi-Fi0
+  NEWMAC4=$(printf "%02x" $(( $(hexdump -n1 -e'/1 "0x%02x"' /dev/urandom) & ~1 | 2)) && hexdump -n5 -e'/1 ":%02x"' /dev/urandom) #Get new MAC-address for Wi-Fi1
+  NEWMAC5=$(printf "%02x" $(( $(hexdump -n1 -e'/1 "0x%02x"' /dev/urandom) & ~1 | 2)) && hexdump -n5 -e'/1 ":%02x"' /dev/urandom) #Get new MAC-address for eth0
+  NEWMAC6=$(printf "%02x" $(( $(hexdump -n1 -e'/1 "0x%02x"' /dev/urandom) & ~1 | 2)) && hexdump -n5 -e'/1 ":%02x"' /dev/urandom) #Get new MAC-address for lan1
+  NEWMAC7=$(printf "%02x" $(( $(hexdump -n1 -e'/1 "0x%02x"' /dev/urandom) & ~1 | 2)) && hexdump -n5 -e'/1 ":%02x"' /dev/urandom) #Get new MAC-address for lan2
+  uci set network.@device[0].macaddr=${NEWMAC1} #Set new MAC-address for br-lan
+  uci set network.lan.macaddr=${NEWMAC2} #Set new MAC-address for lan
+  uci set wireless.@wifi-iface[0].macaddr=${NEWMAC3} #Set new MAC-address for Wi-Fi0
+  uci set wireless.@wifi-iface[1].macaddr=${NEWMAC4} #Set new MAC-address for Wi-Fi1
+  uci set network.@device[1].macaddr=${NEWMAC5} #Set new MAC-address for eth0
+  uci set network.@device[2].macaddr=${NEWMAC6} #Set new MAC-address for lan1
+  uci set network.@device[3].macaddr=${NEWMAC7} #Set new MAC-address for lan2
+  #LAN IP-ADDRESS RANDOMIZATION
+  #random_number_for_ip=$(awk 'BEGIN{srand(); print int(rand()*245)+5}') #Get random number
+  #random_ip1="192.168.$random_number_for_ip.1" #Get random IP
+  #random_ip2="$random_ip1/24" #Add subnet mask to IP
+  #uci set network.lan.ipaddr=${random_ip2} #Set new IP-address
+  #HOSTNAME RANDOMIZATION
+  line_number=$(awk 'BEGIN{srand(); print int(rand()*3150)+1}') #Get random line number
+  new_hostname=$(sed -n "${line_number}p" /usr/local/bin/hostnames.txt) #Get random hostname
+  uci set system.@system[0].hostname=${new_hostname} #Set new hostname
+  uci set system.cfg01e48a.hostname=${new_hostname} #Set new hostname
+  #SET NEW SETTINGS
+  uci commit network
+  uci commit wireless
+  uci commit system
+  /etc/init.d/network restart
+  /etc/init.d/system restart
+}
+```
+3. Создать файл, содержащий по одному имени устройства в каждой строке
+
+4. Скопировать файлы в необходимые директории и включить скрипт:
+
+```bash
+
+#!/bin/bash
+
+cp identifiers_randomization /etc/init.d/identifiers_randomization
+
+chmod +x /etc/init.d/identifiers_randomization
+
+cp hostnames.txt /usr/local/bin/hostnames.txt
+
+/etc/init.d/identifiers_randomization enable
+
+```
+
+
 ## Рандомизация MAC-адреса
 
 1. Создать файл 99-macchanger.conf:
@@ -762,3 +826,114 @@ systemctl daemon-reload
 systemctl enable clear_screenshots.service
 
 ```
+
+## Выключение Wi-Fi при закрытии крышки ноутбука
+
+1. Создать файл disable_wifi_on_lid_close.sh:
+
+```bash
+
+#!/bin/bash
+
+WIFI_STATE_FILE="/sys/class/rfkill/rfkill0/state"
+
+disable_wifi() {
+    echo "0" > "$WIFI_STATE_FILE"
+    echo "Wi-Fi turned off."
+}
+
+while true; do
+    if [ "$(cat /proc/acpi/button/lid/LID0/state | awk '{print $2}')" == "closed" ]; then
+        disable_wifi
+    fi
+    sleep 1
+done
+
+```
+
+2. Создать файл disable_wifi_on_lid_close.service:
+
+```bash
+
+[Unit]
+Description=Wi-Fi Disable on Lid Close
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/switch_wifi/disable_wifi_on_lid_close.sh
+
+[Install]
+WantedBy=multi-user.target
+
+```
+3. Скопировать файлы в необходимые директории и включить скрипт:
+
+```bash
+
+#!/bin/bash
+
+mkdir /usr/local/bin/switch_wifi
+
+cp disable_wifi_on_lid_close.sh /usr/local/bin/switch_wifi/disable_wifi_on_lid_close.sh
+chmod +x /usr/local/bin/switch_wifi/disable_wifi_on_lid_close.sh
+
+cp disable_wifi_on_lid_close.service /etc/systemd/system/disable_wifi_on_lid_close.service
+
+systemctl daemon-reload
+systemctl enable /etc/systemd/system/disable_wifi_on_lid_close.service
+```
+
+## Включение Wi-Fi при открытии крышки ноутбука
+
+1. Создать файл enable_wifi_on_lid_open.sh:
+
+```bash
+
+#!/bin/bash
+
+WIFI_STATE_FILE="/sys/class/rfkill/rfkill0/state"
+
+enable_wifi() {
+    echo "1" > "$WIFI_STATE_FILE"
+    echo "Wi-Fi turned on."
+}
+
+while true; do
+    if [ "$(cat /proc/acpi/button/lid/LID0/state | awk '{print $2}')" == "open" ]; then
+        enable_wifi
+    fi
+    sleep 1
+done
+
+```
+
+2. Создать файл enable_wifi_on_lid_open.service:
+
+```bash
+
+[Unit]
+Description=Wi-Fi Enable on Lid Open
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/switch_wifi/enable_wifi_on_lid_open.sh
+
+[Install]
+WantedBy=multi-user.target
+
+```
+
+## Добавление модулей ядра в черный список
+
+```bash
+#!/bin/bash
+
+touch /etc/modprobe.d/blacklist.conf
+
+echo "module_name" >> /etc/modprobe.d/blacklist.conf # module_name - имя модуля
+
+```
+## Добавление модулей ядра в черный список
+
